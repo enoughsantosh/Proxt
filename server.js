@@ -1,15 +1,20 @@
 const express = require("express");
 const request = require("request");
 const cors = require("cors");
-const url = require("url");
+const path = require("path");
 
 const app = express();
 app.use(cors());
 
+// Serve the embed player when accessing the root URL
+app.get("/", (req, res) => {
+    res.sendFile(path.join(__dirname, "player.html"));
+});
+
 // Proxy for M3U8 & TS files
 app.get("/proxy", (req, res) => {
     let targetUrl = req.query.url;
-
+    
     if (!targetUrl) {
         return res.status(400).send("Missing URL");
     }
@@ -27,23 +32,18 @@ app.get("/proxy", (req, res) => {
             return res.status(500).send("Proxy error: " + error.message);
         }
 
-        // Check if the response is an M3U8 playlist
+        // Modify M3U8 files to fix relative URLs
         if (targetUrl.includes(".m3u8")) {
             let baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
-            let modifiedBody = body.replace(/(\r\n|\n)/g, "\n") // Normalize newlines
-                .replace(/^(?!#)([^\n\r]+)/gm, (match) => {
-                    if (match.startsWith("http") || match.startsWith("/")) {
-                        return match; // Keep absolute URLs as they are
-                    } else {
-                        return baseUrl + match; // Convert relative URLs to absolute
-                    }
-                });
+            let modifiedBody = body.replace(/(\r\n|\n)/g, "\n").replace(/^(?!#)([^\n\r]+)/gm, (match) => {
+                return match.startsWith("http") ? match : baseUrl + match;
+            });
 
             res.set("Content-Type", "application/vnd.apple.mpegurl");
             return res.send(modifiedBody);
         }
 
-        // Stream other files (TS segments, JPGs, etc.)
+        // Stream other resources
         request(options).pipe(res);
     });
 });
@@ -51,5 +51,5 @@ app.get("/proxy", (req, res) => {
 // Start the server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Proxy server running at http://localhost:${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}`);
 });
