@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embedded HLS Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: black;
+        }
+        video {
+            width: 80%;
+            max-width: 800px;
+        }
+    </style>
+</head>
+<body>
+    <video id="video" controls autoplay></video>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const m3u8Url = urlParams.get("url");
+
+        if (!m3u8Url) {
+            alert("Error: No video URL provided.");
+            throw new Error("No video URL provided.");
+        }
+
+        const video = document.getElementById("video");
+
+        function rewriteURL(url) {
+            return "/proxy?url=" + encodeURIComponent(url);
+        }
+
+        if (Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(rewriteURL(m3u8Url));
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                video.play();
+                setupQualitySelection(hls);
+                setupAudioTrackSelection(hls);
+                setupSubtitleTrackSelection(hls);
+            });
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+            video.src = rewriteURL(m3u8Url);
+            video.addEventListener("loadedmetadata", function() {
+                video.play();
+            });
+        }
+
+        function setupQualitySelection(hls) {
+            const levels = hls.levels.map((level, index) => ({ label: `${level.height}p`, index }));
+            addControl("Quality", levels, (index) => hls.currentLevel = index);
+        }
+
+        function setupAudioTrackSelection(hls) {
+            const tracks = hls.audioTracks.map((track, index) => ({ label: track.name, index }));
+            if (tracks.length > 1) {
+                addControl("Audio", tracks, (index) => hls.audioTrack = index);
+            }
+        }
+
+        function setupSubtitleTrackSelection(hls) {
+            const subtitles = hls.subtitleTracks.map((track, index) => ({ label: track.name || `Subtitle ${index+1}`, index }));
+            if (subtitles.length > 0) {
+                addControl("Subtitles", subtitles, (index) => hls.subtitleTrack = index);
+            }
+        }
+
+        function addControl(label, options, onChange) {
+            const select = document.createElement("select");
+            select.style.position = "absolute";
+            select.style.bottom = "10px";
+            select.style.right = "10px";
+
+            options.forEach(opt => {
+                const option = document.createElement("option");
+                option.value = opt.index;
+                option.textContent = opt.label;
+                select.appendChild(option);
+            });
+
+            select.addEventListener("change", () => onChange(parseInt(select.value)));
+            document.body.appendChild(select);
+        }
+    </script>
+</body>
+</html>
