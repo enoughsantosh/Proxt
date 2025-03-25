@@ -1,56 +1,44 @@
 const express = require("express");
-const request = require("request");
+const axios = require("axios");
+const m3u8Parser = require("m3u8-parser");
 const cors = require("cors");
-const url = require("url");
 
 const app = express();
-app.use(express.static(__dirname));
-app.use(cors());
-
-// Proxy for M3U8 & TS files
-app.get("/proxy", (req, res) => {
-    let targetUrl = req.query.url;
-
-    if (!targetUrl) {
-        return res.status(400).send("Missing URL");
-    }
-
-    const options = {
-        url: targetUrl,
-        headers: {
-            "Referer": "https://netfree.cc",
-            "User-Agent": "Mozilla/5.0"
-        }
-    };
-
-    request(options, (error, response, body) => {
-        if (error) {
-            return res.status(500).send("Proxy error: " + error.message);
-        }
-
-        // Check if the response is an M3U8 playlist
-        if (targetUrl.includes(".m3u8")) {
-            let baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
-            let modifiedBody = body.replace(/(\r\n|\n)/g, "\n") // Normalize newlines
-                .replace(/^(?!#)([^\n\r]+)/gm, (match) => {
-                    if (match.startsWith("http") || match.startsWith("/")) {
-                        return match; // Keep absolute URLs as they are
-                    } else {
-                        return baseUrl + match; // Convert relative URLs to absolute
-                    }
-                });
-
-            res.set("Content-Type", "application/vnd.apple.mpegurl");
-            return res.send(modifiedBody);
-        }
-
-        // Stream other files (TS segments, JPGs, etc.)
-        request(options).pipe(res);
-    });
-});
-
-// Start the server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Proxy server running at http://localhost:${PORT}`);
+
+app.use(cors());
+app.use(express.static("public")); // Serve frontend files
+
+app.get("/parse", async (req, res) => {
+    const m3u8Url = req.query.url;
+    if (!m3u8Url) return res.status(400).json({ error: "M3U8 URL is required" });
+
+    try {
+        const { data } = await axios.get(m3u8Url);
+        const parser = new m3u8Parser.Parser();
+        parser.push(data);
+        parser.end();
+        const playlist = parser.manifest;
+
+        const result = {
+            videos: playlist.playlists?.map((p) => ({
+                resolution: `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}`,
+                url: p.uri,
+            })) || [],
+            audio: playlist.media?.filter((m) => m.type === "AUDIO").map((a) => ({
+                language: a.language,
+                url: a.uri,
+            })) || [],
+            subtitles: playlist.media?.filter((m) => m.type === "SUBTITLES").map((s) => ({
+                language: s.language,
+                url: s.uri,
+            })) || []
+        };
+
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: "Error parsing M3U8", details: error.message });
+    }
 });
+
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
