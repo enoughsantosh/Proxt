@@ -289,21 +289,20 @@
 
     // Initialize player
     document.addEventListener('DOMContentLoaded', () => {
-        const player = new HLSPlayer('player');
-        
-const urlParams = new URLSearchParams(window.location.search);
-const videoUrl = urlParams.get('url');
-const vudeosUrl = proxyUrl(vudeoUrl);
+    const player = new HLSPlayer('player');
 
-if (videoUrl) {
-    player.load(videosUrl);
-} else {
-    player.showError('No video URL provided');
-}
-        
-        // Make available globally if needed
-        window.hlsPlayer = player;
-    });
+    const urlParams = new URLSearchParams(window.location.search);
+    const videoUrl = urlParams.get('url');
+
+    if (videoUrl) {
+        const videosUrl = player.proxyUrl(videoUrl);
+        player.load(videosUrl);
+    } else {
+        player.showError('No video URL provided');
+    }
+
+    window.hlsPlayer = player;
+});
     </script>
 </body>
 </html>
