@@ -83,226 +83,222 @@
     </div>
 
     <script>
-    class HLSPlayer {
-        constructor(containerId) {
-            // Elements
-            this.container = document.getElementById(containerId);
-            this.video = this.container.querySelector('#video');
-            this.loading = this.container.querySelector('#loading');
-            this.error = this.container.querySelector('#error');
-            this.errorText = this.container.querySelector('#errorText');
-            this.retry = this.container.querySelector('#retry');
-            this.playPause = this.container.querySelector('#playPause');
-            this.mute = this.container.querySelector('#mute');
-            this.volume = this.container.querySelector('#volume');
-            this.progressContainer = this.container.querySelector('#progressContainer');
-            this.progressBar = this.container.querySelector('#progressBar');
-            this.timeDisplay = this.container.querySelector('#time');
-            this.quality = this.container.querySelector('#quality');
-            this.audio = this.container.querySelector('#audio');
-            this.fullscreen = this.container.querySelector('#fullscreen');
-            
-            // State
-            this.hls = null;
-            this.url = '';
-            this.progressInterval = null;
-            this.controlsTimeout = null;
-            this.showingControls = false;
-            
-            this.init();
+                
+            class HLSPlayer {
+    constructor(containerId) {
+        this.container = document.getElementById(containerId);
+        this.video = this.container.querySelector('#video');
+        this.loading = this.container.querySelector('#loading');
+        this.error = this.container.querySelector('#error');
+        this.errorText = this.container.querySelector('#errorText');
+        this.retry = this.container.querySelector('#retry');
+        this.playPause = this.container.querySelector('#playPause');
+        this.mute = this.container.querySelector('#mute');
+        this.volume = this.container.querySelector('#volume');
+        this.progressContainer = this.container.querySelector('#progressContainer');
+        this.progressBar = this.container.querySelector('#progressBar');
+        this.timeDisplay = this.container.querySelector('#time');
+        this.quality = this.container.querySelector('#quality');
+        this.audio = this.container.querySelector('#audio');
+        this.fullscreen = this.container.querySelector('#fullscreen');
+
+        this.hls = null;
+        this.url = '';
+        this.progressInterval = null;
+        this.controlsTimeout = null;
+
+        this.init();
+    }
+
+    init() {
+        if (!Hls.isSupported()) {
+            this.showError('Browser not supported');
+            return;
         }
-        
-        init() {
-            if (!Hls.isSupported()) {
-                this.showError('Browser not supported');
-                return;
-            }
-            
-            this.hls = new Hls({
-                enableWorker: true,
-                xhrSetup: (xhr, url) => xhr.open('GET', this.proxyUrl(url), true)
-            });
-            this.hls.attachMedia(this.video);
-            
-            this.setupEvents();
-        }
-        
-        proxyUrl(url) {
-            return `/proxy?url=${encodeURIComponent(url)}`;
-        }
-        
-        setupEvents() {
-            // Play/Pause
-            this.playPause.addEventListener('click', () => this.togglePlay());
-            this.video.addEventListener('click', () => this.togglePlay());
-            
-            // Volume
-            this.mute.addEventListener('click', () => this.toggleMute());
-            this.volume.addEventListener('input', (e) => {
-                this.video.volume = e.target.value;
-                this.video.muted = e.target.value == 0;
-                this.mute.textContent = e.target.value == 0 ? '🔇' : '🔊';
-            });
-            
-            // Progress
-            this.progressContainer.addEventListener('click', (e) => {
-                const rect = this.progressContainer.getBoundingClientRect();
-                const pos = (e.clientX - rect.left) / rect.width;
-                this.video.currentTime = pos * this.video.duration;
-            });
-            
-            // Time update
-            this.video.addEventListener('timeupdate', () => this.updateTime());
-            
-            // Quality
-            this.quality.addEventListener('change', (e) => {
-                this.hls.currentLevel = e.target.value === 'auto' ? -1 : parseInt(e.target.value);
-            });
-            
-            // Fullscreen
-            this.fullscreen.addEventListener('click', () => this.toggleFullscreen());
-            
-            // Retry
-            this.retry.addEventListener('click', () => this.load(this.url));
-            
-            // Mouse movement for controls
-            this.container.addEventListener('mousemove', () => this.showControls());
-            this.container.addEventListener('mouseleave', () => this.hideControls());
-            
-            // HLS events
-            this.hls.on(Hls.Events.MEDIA_ATTACHED, () => console.log('Media attached'));
-            this.hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => this.setupTracks(data));
-            this.hls.on(Hls.Events.ERROR, (e, data) => this.handleError(data));
-        }
-        
-        load(url) {
-            this.url = url;
-            this.showLoading();
-            this.hls.loadSource(this.proxyUrl(url));
-            this.hls.startLoad();
-        }
-        
-        togglePlay() {
-            this.video.paused ? this.video.play() : this.video.pause();
-        }
-        
-        toggleMute() {
-            this.video.muted = !this.video.muted;
-            this.mute.textContent = this.video.muted ? '🔇' : '🔊';
-            this.volume.value = this.video.muted ? 0 : this.video.volume;
-        }
-        
-        updateTime() {
-            const current = this.formatTime(this.video.currentTime);
-            const duration = this.formatTime(this.video.duration);
-            this.timeDisplay.textContent = `${current} / ${duration}`;
-            
-            const percent = (this.video.currentTime / this.video.duration) * 100;
-            this.progressBar.style.width = `${percent}%`;
-        }
-        
-        formatTime(seconds) {
-            if (isNaN(seconds)) return '00:00';
-            const mins = Math.floor(seconds / 60);
-            const secs = Math.floor(seconds % 60);
-            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        
-        setupTracks(data) {
-            this.hideLoading();
-            
-            // Quality levels
-            this.quality.innerHTML = '<option value="auto">Auto</option>';
-            if (data.levels && data.levels.length > 1) {
-                data.levels.forEach((level, i) => {
-                    const opt = document.createElement('option');
-                    opt.value = i;
-                    opt.textContent = level.height ? `${level.height}p` : `${Math.round(level.bitrate/1000)}kbps`;
-                    this.quality.appendChild(opt);
-                });
-                this.quality.disabled = false;
-            }
-            
-            // Audio tracks
-            this.audio.innerHTML = '<option value="default">Default</option>';
-            if (data.audioTracks && data.audioTracks.length > 1) {
-                data.audioTracks.forEach((track, i) => {
-                    const opt = document.createElement('option');
-                    opt.value = i;
-                    opt.textContent = track.name || track.lang || `Audio ${i+1}`;
-                    this.audio.appendChild(opt);
-                });
-                this.audio.disabled = false;
-            }
-        }
-        
-        toggleFullscreen() {
-            if (!document.fullscreenElement) {
-                this.container.requestFullscreen().catch(console.error);
-            } else {
-                document.exitFullscreen();
-            }
-        }
-        
-        showControls() {
-            clearTimeout(this.controlsTimeout);
-            this.container.querySelector('.controls').style.opacity = '1';
-            this.controlsTimeout = setTimeout(() => this.hideControls(), 3000);
-        }
-        
-        hideControls() {
-            if (!this.video.paused) {
-                this.container.querySelector('.controls').style.opacity = '0';
-            }
-        }
-        
-        showLoading() {
-            this.error.style.display = 'none';
-            this.loading.style.display = 'flex';
-        }
-        
-        hideLoading() {
-            this.loading.style.display = 'none';
-        }
-        
-        showError(message) {
-            this.hideLoading();
-            this.errorText.textContent = message;
-            this.error.style.display = 'flex';
-        }
-        
-        handleError(data) {
-            let message = 'Playback error';
-            if (data.fatal) {
-                switch(data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR:
-                        message = 'Network error';
-                        break;
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                        message = 'Media error';
-                        break;
-                }
-            }
-            this.showError(message);
+
+        this.hls = new Hls({
+            enableWorker: true
+        });
+
+        this.hls.attachMedia(this.video);
+        this.setupEvents();
+    }
+
+    // ✅ FIXED: Prevent double encoding of the URL
+    proxyUrl(url) {
+        try {
+            const decodedUrl = decodeURIComponent(url); // Decode first to avoid double encoding
+            return `/proxy?url=${encodeURIComponent(decodedUrl)}`;
+        } catch (e) {
+            console.error("Error decoding URL:", e);
+            return `/proxy?url=${url}`;
         }
     }
 
-    // Initialize player
-    document.addEventListener('DOMContentLoaded', () => {
+    setupEvents() {
+        this.playPause.addEventListener('click', () => this.togglePlay());
+        this.video.addEventListener('click', () => this.togglePlay());
+
+        this.mute.addEventListener('click', () => this.toggleMute());
+        this.volume.addEventListener('input', (e) => {
+            this.video.volume = e.target.value;
+            this.video.muted = e.target.value == 0;
+            this.mute.textContent = e.target.value == 0 ? '🔇' : '🔊';
+        });
+
+        this.progressContainer.addEventListener('click', (e) => {
+            const rect = this.progressContainer.getBoundingClientRect();
+            const pos = (e.clientX - rect.left) / rect.width;
+            this.video.currentTime = pos * this.video.duration;
+        });
+
+        this.video.addEventListener('timeupdate', () => this.updateTime());
+
+        this.quality.addEventListener('change', (e) => {
+            this.hls.currentLevel = e.target.value === 'auto' ? -1 : parseInt(e.target.value);
+        });
+
+        this.fullscreen.addEventListener('click', () => this.toggleFullscreen());
+
+        this.retry.addEventListener('click', () => this.load(this.url));
+
+        this.container.addEventListener('mousemove', () => this.showControls());
+        this.container.addEventListener('mouseleave', () => this.hideControls());
+
+        this.hls.on(Hls.Events.MEDIA_ATTACHED, () => console.log('Media attached'));
+        this.hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => this.setupTracks(data));
+        this.hls.on(Hls.Events.ERROR, (e, data) => this.handleError(data));
+    }
+
+    load(url) {
+        this.url = url;
+        this.showLoading();
+        const fixedUrl = this.proxyUrl(url);
+        console.log("Loading video from:", fixedUrl);
+        this.hls.loadSource(fixedUrl);
+        this.hls.startLoad();
+    }
+
+    togglePlay() {
+        this.video.paused ? this.video.play() : this.video.pause();
+    }
+
+    toggleMute() {
+        this.video.muted = !this.video.muted;
+        this.mute.textContent = this.video.muted ? '🔇' : '🔊';
+        this.volume.value = this.video.muted ? 0 : this.video.volume;
+    }
+
+    updateTime() {
+        const current = this.formatTime(this.video.currentTime);
+        const duration = this.formatTime(this.video.duration);
+        this.timeDisplay.textContent = `${current} / ${duration}`;
+
+        const percent = (this.video.currentTime / this.video.duration) * 100;
+        this.progressBar.style.width = `${percent}%`;
+    }
+
+    formatTime(seconds) {
+        if (isNaN(seconds)) return '00:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    setupTracks(data) {
+        this.hideLoading();
+
+        this.quality.innerHTML = '<option value="auto">Auto</option>';
+        if (data.levels && data.levels.length > 1) {
+            data.levels.forEach((level, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = level.height ? `${level.height}p` : `${Math.round(level.bitrate / 1000)}kbps`;
+                this.quality.appendChild(opt);
+            });
+            this.quality.disabled = false;
+        }
+
+        this.audio.innerHTML = '<option value="default">Default</option>';
+        if (data.audioTracks && data.audioTracks.length > 1) {
+            data.audioTracks.forEach((track, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = track.name || track.lang || `Audio ${i + 1}`;
+                this.audio.appendChild(opt);
+            });
+            this.audio.disabled = false;
+        }
+    }
+
+    toggleFullscreen() {
+        if (!document.fullscreenElement) {
+            this.container.requestFullscreen().catch(console.error);
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    showControls() {
+        clearTimeout(this.controlsTimeout);
+        this.container.querySelector('.controls').style.opacity = '1';
+        this.controlsTimeout = setTimeout(() => this.hideControls(), 3000);
+    }
+
+    hideControls() {
+        if (!this.video.paused) {
+            this.container.querySelector('.controls').style.opacity = '0';
+        }
+    }
+
+    showLoading() {
+        this.error.style.display = 'none';
+        this.loading.style.display = 'flex';
+    }
+
+    hideLoading() {
+        this.loading.style.display = 'none';
+    }
+
+    showError(message) {
+        this.hideLoading();
+        this.errorText.textContent = message;
+        this.error.style.display = 'flex';
+    }
+
+    handleError(data) {
+        let message = 'Playback error';
+        if (data.fatal) {
+            switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                    message = 'Network error';
+                    break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                    message = 'Media error';
+                    break;
+            }
+        }
+        this.showError(message);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
     const player = new HLSPlayer('player');
 
     const urlParams = new URLSearchParams(window.location.search);
     const videoUrl = urlParams.get('url');
 
     if (videoUrl) {
-        const videosUrl = player.proxyUrl(videoUrl);
-        player.load(videosUrl);
+        const fixedUrl = player.proxyUrl(videoUrl);
+        console.log("Final video URL:", fixedUrl);
+        player.load(fixedUrl);
     } else {
         player.showError('No video URL provided');
     }
 
     window.hlsPlayer = player;
 });
+        
     </script>
 </body>
 </html>
