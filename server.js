@@ -2,7 +2,6 @@ const express = require("express");
 const axios = require("axios");
 const m3u8Parser = require("m3u8-parser");
 const cors = require("cors");
-const url = require("url"); // For handling base URLs
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,12 +12,14 @@ app.use(express.json());
 
 app.get("/parse", async (req, res) => {
     const m3u8Url = req.query.url;
-    const referer = req.query.referer || "";
+    const referer = req.query.referer || "https://netfree.cc"; // Default referer
 
-    if (!m3u8Url) return res.status(400).json({ error: "M3U8 URL is required" });
+    if (!m3u8Url) {
+        return res.status(400).json({ error: "M3U8 URL is required" });
+    }
 
     try {
-        const headers = referer ? { headers: { Referer: referer } } : {};
+        const headers = { headers: { Referer: referer } };
         const { data } = await axios.get(m3u8Url, headers);
 
         const parser = new m3u8Parser.Parser();
@@ -26,14 +27,12 @@ app.get("/parse", async (req, res) => {
         parser.end();
         const playlist = parser.manifest;
 
-        const baseUrl = new URL(m3u8Url).origin; // Extract base domain
-
         const makeAbsolute = (link) => (link.startsWith("http") ? link : new URL(link, m3u8Url).href);
 
         const result = {
             videos: playlist.playlists?.map((p) => ({
                 resolution: `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}`,
-                url: makeAbsolute(p.uri), // Convert to absolute URL
+                url: makeAbsolute(p.uri),
             })) || [],
             audio: playlist.media?.filter((m) => m.type === "AUDIO").map((a) => ({
                 language: a.language,
