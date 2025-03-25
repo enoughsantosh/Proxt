@@ -2,43 +2,46 @@ const express = require("express");
 const axios = require("axios");
 const m3u8Parser = require("m3u8-parser");
 const cors = require("cors");
+const url = require("url"); // For handling base URLs
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.static("public")); // Serve frontend files
-app.use(express.json()); // For handling JSON body
+app.use(express.static("public"));
+app.use(express.json());
 
 app.get("/parse", async (req, res) => {
     const m3u8Url = req.query.url;
-    const referer = req.query.referer || ""; // Get custom referer
+    const referer = req.query.referer || "";
 
     if (!m3u8Url) return res.status(400).json({ error: "M3U8 URL is required" });
 
     try {
-        // Add referer header if provided
         const headers = referer ? { headers: { Referer: referer } } : {};
         const { data } = await axios.get(m3u8Url, headers);
 
-        // Parse M3U8
         const parser = new m3u8Parser.Parser();
         parser.push(data);
         parser.end();
         const playlist = parser.manifest;
 
+        const baseUrl = new URL(m3u8Url).origin; // Extract base domain
+
+        const makeAbsolute = (link) => (link.startsWith("http") ? link : new URL(link, m3u8Url).href);
+
         const result = {
             videos: playlist.playlists?.map((p) => ({
                 resolution: `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}`,
-                url: p.uri,
+                url: makeAbsolute(p.uri), // Convert to absolute URL
             })) || [],
             audio: playlist.media?.filter((m) => m.type === "AUDIO").map((a) => ({
                 language: a.language,
-                url: a.uri,
+                url: makeAbsolute(a.uri),
             })) || [],
             subtitles: playlist.media?.filter((m) => m.type === "SUBTITLES").map((s) => ({
                 language: s.language,
-                url: s.uri,
+                url: makeAbsolute(s.uri),
             })) || [],
         };
 
