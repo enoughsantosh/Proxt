@@ -27,24 +27,33 @@ app.get("/parse", async (req, res) => {
         parser.end();
         const playlist = parser.manifest;
 
-        const makeAbsolute = (link) => (link.startsWith("http") ? link : new URL(link, m3u8Url).href);
+        const makeAbsolute = (link) => (link && !link.startsWith("http") ? new URL(link, m3u8Url).href : link);
 
-        const result = {
-            videos: playlist.playlists?.map((p) => ({
-                resolution: `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}`,
-                url: makeAbsolute(p.uri),
-            })) || [],
-            audio: playlist.media?.filter((m) => m.type === "AUDIO").map((a) => ({
-                language: a.language,
-                url: makeAbsolute(a.uri),
-            })) || [],
-            subtitles: playlist.media?.filter((m) => m.type === "SUBTITLES").map((s) => ({
-                language: s.language,
-                url: makeAbsolute(s.uri),
-            })) || [],
-        };
+        // Extract Video Streams
+        const videos = playlist.playlists?.map((p) => ({
+            resolution: p.attributes.RESOLUTION
+                ? `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}`
+                : "Unknown",
+            url: makeAbsolute(p.uri),
+        })) || [];
 
-        res.json(result);
+        // Extract Audio Tracks
+        const audioTracks = (playlist.media || []).filter((m) => m.type === "AUDIO");
+        const audio = audioTracks.map((a) => ({
+            language: a.language || "Unknown",
+            name: a.name || "Audio Track",
+            url: makeAbsolute(a.uri),
+        }));
+
+        // Extract Subtitles
+        const subtitleTracks = (playlist.media || []).filter((m) => m.type === "SUBTITLES");
+        const subtitles = subtitleTracks.map((s) => ({
+            language: s.language || "Unknown",
+            name: s.name || "Subtitle",
+            url: makeAbsolute(s.uri),
+        }));
+
+        res.json({ videos, audio, subtitles });
     } catch (error) {
         res.status(500).json({ error: "Error parsing M3U8", details: error.message });
     }
