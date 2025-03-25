@@ -3,347 +3,306 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced HLS Player with Detailed Playlist Parsing</title>
+    <title>HLS Player</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 20px;
+        .player-container:hover .controls {
+            opacity: 1;
         }
-        #playlistInfo {
-            background-color: #f4f4f4;
-            border: 1px solid #ddd;
-            padding: 15px;
-            margin-bottom: 20px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            max-height: 300px;
-            overflow-y: auto;
+        .scrubber:hover .scrubber-progress::after {
+            opacity: 1;
         }
-        select {
-            margin: 10px 0;
-            padding: 5px;
+        .scrubber-progress::after {
+            content: '';
+            position: absolute;
+            right: -5px;
+            top: -3px;
+            width: 12px;
+            height: 12px;
+            background: #3b82f6;
+            border-radius: 50%;
+            opacity: 0;
+            transition: opacity 0.2s;
         }
-        video {
-            width: 100%;
-            max-width: 800px;
+        .loading-spinner {
+            border-top-color: #3b82f6;
+            animation: spin 1s linear infinite;
         }
-        .controls {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-bottom: 15px;
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
     </style>
 </head>
-<body>
-    <div id="playlistInfo"></div>
-
-    <div class="controls">
-        <div>
-            <label for="languageSelect">Audio Language:</label>
-            <select id="languageSelect" style="display: none;" onchange="changeLanguage()">
-                <option value="">Select Language</option>
-            </select>
+<div class="relative w-full max-w-4xl bg-black rounded-lg overflow-hidden shadow-xl player-container" id="player" style="max-height: 90vh;">
+    <div class="relative w-full max-w-4xl bg-black rounded-lg overflow-hidden shadow-xl player-container" id="player">
+        <video class="w-full" id="video" playsinline></video>
+        
+        <!-- Loading Indicator -->
+        <div class="absolute inset-0 flex items-center justify-center hidden" id="loading">
+            <div class="w-12 h-12 border-4 border-white/30 rounded-full loading-spinner"></div>
         </div>
-
-        <div>
-            <label for="subtitleSelect">Subtitles:</label>
-            <select id="subtitleSelect" style="display: none;" onchange="changeSubtitle()">
-                <option value="">None</option>
-            </select>
+        
+        <!-- Error Display -->
+        <div class="absolute inset-0 bg-black/80 flex flex-col items-center justify-center p-6 hidden" id="error">
+            <div class="text-white text-center mb-4" id="errorText"></div>
+            <button class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded" id="retry">Retry</button>
         </div>
-
-        <div>
-            <label for="qualitySelect">Video Quality:</label>
-            <select id="qualitySelect" style="display: none;" onchange="changeQuality()">
-                <option value="">Select Quality</option>
-            </select>
+        
+        <!-- Controls Container -->
+        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 transition-opacity duration-300 opacity-0 controls">
+            <!-- Progress Bar -->
+            <div class="w-full h-1.5 bg-gray-600 rounded-full mb-3 cursor-pointer scrubber" id="progressContainer">
+                <div class="h-full bg-blue-500 rounded-full scrubber-progress" id="progressBar"></div>
+            </div>
+            
+            <!-- Bottom Controls -->
+            <div class="flex items-center justify-between">
+                <!-- Left Controls -->
+                <div class="flex items-center space-x-3">
+                    <button class="text-white w-8 h-8 flex items-center justify-center" id="playPause">▶</button>
+                    <div class="flex items-center space-x-2">
+                        <button class="text-white w-6 h-6 flex items-center justify-center" id="mute">🔊</button>
+                        <input type="range" min="0" max="1" step="0.01" value="1" class="w-20 accent-blue-500" id="volume">
+                    </div>
+                    <div class="text-white text-sm" id="time">00:00 / 00:00</div>
+                </div>
+                
+                <!-- Right Controls -->
+                <div class="flex items-center space-x-3">
+                    <select class="bg-gray-800 text-white text-xs rounded px-2 py-1" id="quality" disabled>
+                        <option value="auto">Auto</option>
+                    </select>
+                    <select class="bg-gray-800 text-white text-xs rounded px-2 py-1" id="audio" disabled>
+                        <option value="default">Default</option>
+                    </select>
+                    <button class="text-white w-8 h-8 flex items-center justify-center" id="fullscreen">⛶</button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <video id="video" controls autoplay></video>
-
     <script>
-        var video = document.getElementById("video");
-        var languageSelect = document.getElementById("languageSelect");
-        var subtitleSelect = document.getElementById("subtitleSelect");
-        var qualitySelect = document.getElementById("qualitySelect");
-        var playlistInfo = document.getElementById("playlistInfo");
-        var hls;
-        var audioTracks = [];
-        var subtitleTracks = [];
-        var videoTracks = [];
-        var currentPlaylistUrl = null;
-        var currentPlaylistDetails = null;
-
-        function rewriteURL(url) {
-            return "https://proxt-fnny.onrender.com/proxy?url=" + encodeURIComponent(url);
-        }
-
-        async function parseM3U8(url) {
-            try {
-                const response = await fetch(rewriteURL(url));
-                const text = await response.text();
-                return parsePlaylist(text, url);
-            } catch (error) {
-                console.error("Error parsing M3U8:", error);
-                return null;
-            }
-        }
-
-        function parsePlaylist(playlistContent, baseUrl) {
-            const lines = playlistContent.split('\n');
-            const playlistInfo = {
-                mediaTypes: {
-                    VIDEO: [],
-                    AUDIO: [],
-                    SUBTITLES: [],
-                    CLOSED_CAPTIONS: []
-                },
-                streamInfo: []
-            };
-
-            lines.forEach(line => {
-                line = line.trim();
-                
-                // Media tag parsing
-                if (line.startsWith('#EXT-X-MEDIA:')) {
-                    const mediaInfo = parseMediaTag(line);
-                    switch(mediaInfo.TYPE) {
-                        case 'VIDEO':
-                            playlistInfo.mediaTypes.VIDEO.push(mediaInfo);
-                            break;
-                        case 'AUDIO':
-                            playlistInfo.mediaTypes.AUDIO.push(mediaInfo);
-                            break;
-                        case 'SUBTITLES':
-                            playlistInfo.mediaTypes.SUBTITLES.push(mediaInfo);
-                            break;
-                        case 'CLOSED-CAPTIONS':
-                            playlistInfo.mediaTypes.CLOSED_CAPTIONS.push(mediaInfo);
-                            break;
-                    }
-                }
-
-                // Stream info parsing
-                if (line.startsWith('#EXT-X-STREAM-INF:')) {
-                    const streamInfo = parseStreamInfoTag(line);
-                    // Resolve relative URLs
-                    if (streamInfo.URI && !streamInfo.URI.startsWith('http')) {
-                        const urlParts = baseUrl.split('/');
-                        urlParts.pop();
-                        streamInfo.URI = urlParts.join('/') + '/' + streamInfo.URI;
-                    }
-                    playlistInfo.streamInfo.push(streamInfo);
-                }
-            });
-
-            return playlistInfo;
-        }
-
-        function parseMediaTag(line) {
-            const mediaInfo = {};
-            const attributes = line.replace('#EXT-X-MEDIA:', '').split(',');
+    class HLSPlayer {
+        constructor(containerId) {
+            // Elements
+            this.container = document.getElementById(containerId);
+            this.video = this.container.querySelector('#video');
+            this.loading = this.container.querySelector('#loading');
+            this.error = this.container.querySelector('#error');
+            this.errorText = this.container.querySelector('#errorText');
+            this.retry = this.container.querySelector('#retry');
+            this.playPause = this.container.querySelector('#playPause');
+            this.mute = this.container.querySelector('#mute');
+            this.volume = this.container.querySelector('#volume');
+            this.progressContainer = this.container.querySelector('#progressContainer');
+            this.progressBar = this.container.querySelector('#progressBar');
+            this.timeDisplay = this.container.querySelector('#time');
+            this.quality = this.container.querySelector('#quality');
+            this.audio = this.container.querySelector('#audio');
+            this.fullscreen = this.container.querySelector('#fullscreen');
             
-            attributes.forEach(attr => {
-                const [key, value] = attr.split('=');
-                const cleanValue = value ? value.replace(/^"|"$/g, '') : '';
-                
-                switch(key.trim()) {
-                    case 'TYPE':
-                        mediaInfo.TYPE = cleanValue;
-                        break;
-                    case 'URI':
-                        mediaInfo.URI = cleanValue;
-                        break;
-                    case 'GROUP-ID':
-                        mediaInfo.GROUP_ID = cleanValue;
-                        break;
-                    case 'LANGUAGE':
-                        mediaInfo.LANGUAGE = cleanValue;
-                        break;
-                    case 'NAME':
-                        mediaInfo.NAME = cleanValue;
-                        break;
-                    case 'DEFAULT':
-                        mediaInfo.DEFAULT = cleanValue === 'YES';
-                        break;
-                    case 'AUTOSELECT':
-                        mediaInfo.AUTOSELECT = cleanValue === 'YES';
-                        break;
-                }
-            });
-
-            return mediaInfo;
-        }
-
-        function parseStreamInfoTag(line) {
-            const streamInfo = {};
-            const attributes = line.replace('#EXT-X-STREAM-INF:', '').split(',');
+            // State
+            this.hls = null;
+            this.url = '';
+            this.progressInterval = null;
+            this.controlsTimeout = null;
+            this.showingControls = false;
             
-            attributes.forEach(attr => {
-                const [key, value] = attr.split('=');
-                const cleanValue = value ? value.replace(/^"|"$/g, '') : '';
-                
-                switch(key.trim()) {
-                    case 'BANDWIDTH':
-                        streamInfo.BANDWIDTH = parseInt(cleanValue);
-                        break;
-                    case 'RESOLUTION':
-                        const [width, height] = cleanValue.split('x');
-                        streamInfo.RESOLUTION = { width: parseInt(width), height: parseInt(height) };
-                        break;
-                    case 'CODECS':
-                        streamInfo.CODECS = cleanValue;
-                        break;
-                    case 'AUDIO':
-                        streamInfo.AUDIO_GROUP = cleanValue;
-                        break;
-                    case 'SUBTITLES':
-                        streamInfo.SUBTITLES_GROUP = cleanValue;
-                        break;
-                    case 'URI':
-                        streamInfo.URI = cleanValue;
-                        break;
-                }
+            this.init();
+        }
+        
+        init() {
+            if (!Hls.isSupported()) {
+                this.showError('Browser not supported');
+                return;
+            }
+            
+            this.hls = new Hls({
+                enableWorker: true,
+                xhrSetup: (xhr, url) => xhr.open('GET', this.proxyUrl(url), true)
             });
-
-            return streamInfo;
+            this.hls.attachMedia(this.video);
+            
+            this.setupEvents();
         }
-
-        function playHLS(url, audioUrl = null) {
-            currentPlaylistUrl = url;
-            if (Hls.isSupported()) {
-                // Destroy previous HLS instance if exists
-                if (hls) {
-                    hls.destroy();
-                }
-
-                hls = new Hls({
-                    xhrSetup: function (xhr, url) {
-                        xhr.open("GET", rewriteURL(url), true);
-                    }
+        
+        proxyUrl(url) {
+            return `/proxy?url=${encodeURIComponent(url)}`;
+        }
+        
+        setupEvents() {
+            // Play/Pause
+            this.playPause.addEventListener('click', () => this.togglePlay());
+            this.video.addEventListener('click', () => this.togglePlay());
+            
+            // Volume
+            this.mute.addEventListener('click', () => this.toggleMute());
+            this.volume.addEventListener('input', (e) => {
+                this.video.volume = e.target.value;
+                this.video.muted = e.target.value == 0;
+                this.mute.textContent = e.target.value == 0 ? '🔇' : '🔊';
+            });
+            
+            // Progress
+            this.progressContainer.addEventListener('click', (e) => {
+                const rect = this.progressContainer.getBoundingClientRect();
+                const pos = (e.clientX - rect.left) / rect.width;
+                this.video.currentTime = pos * this.video.duration;
+            });
+            
+            // Time update
+            this.video.addEventListener('timeupdate', () => this.updateTime());
+            
+            // Quality
+            this.quality.addEventListener('change', (e) => {
+                this.hls.currentLevel = e.target.value === 'auto' ? -1 : parseInt(e.target.value);
+            });
+            
+            // Fullscreen
+            this.fullscreen.addEventListener('click', () => this.toggleFullscreen());
+            
+            // Retry
+            this.retry.addEventListener('click', () => this.load(this.url));
+            
+            // Mouse movement for controls
+            this.container.addEventListener('mousemove', () => this.showControls());
+            this.container.addEventListener('mouseleave', () => this.hideControls());
+            
+            // HLS events
+            this.hls.on(Hls.Events.MEDIA_ATTACHED, () => console.log('Media attached'));
+            this.hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => this.setupTracks(data));
+            this.hls.on(Hls.Events.ERROR, (e, data) => this.handleError(data));
+        }
+        
+        load(url) {
+            this.url = url;
+            this.showLoading();
+            this.hls.loadSource(this.proxyUrl(url));
+            this.hls.startLoad();
+        }
+        
+        togglePlay() {
+            this.video.paused ? this.video.play() : this.video.pause();
+        }
+        
+        toggleMute() {
+            this.video.muted = !this.video.muted;
+            this.mute.textContent = this.video.muted ? '🔇' : '🔊';
+            this.volume.value = this.video.muted ? 0 : this.video.volume;
+        }
+        
+        updateTime() {
+            const current = this.formatTime(this.video.currentTime);
+            const duration = this.formatTime(this.video.duration);
+            this.timeDisplay.textContent = `${current} / ${duration}`;
+            
+            const percent = (this.video.currentTime / this.video.duration) * 100;
+            this.progressBar.style.width = `${percent}%`;
+        }
+        
+        formatTime(seconds) {
+            if (isNaN(seconds)) return '00:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        
+        setupTracks(data) {
+            this.hideLoading();
+            
+            // Quality levels
+            this.quality.innerHTML = '<option value="auto">Auto</option>';
+            if (data.levels && data.levels.length > 1) {
+                data.levels.forEach((level, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = i;
+                    opt.textContent = level.height ? `${level.height}p` : `${Math.round(level.bitrate/1000)}kbps`;
+                    this.quality.appendChild(opt);
                 });
-
-                // First, parse the playlist
-                parseM3U8(url).then(playlistDetails => {
-                    currentPlaylistDetails = playlistDetails;
-                    // Display playlist details
-                    playlistInfo.textContent = JSON.stringify(playlistDetails, null, 2);
-
-                    // Populate quality options
-                    if (playlistDetails.streamInfo.length > 0) {
-                        qualitySelect.innerHTML = "";
-                        playlistDetails.streamInfo.forEach((stream, index) => {
-                            let option = document.createElement("option");
-                            option.value = index;
-                            option.textContent = stream.RESOLUTION 
-                                ? `${stream.RESOLUTION.width}x${stream.RESOLUTION.height} (${Math.round(stream.BANDWIDTH/1000)} kbps)` 
-                                : `Stream ${index + 1}`;
-                            qualitySelect.appendChild(option);
-                        });
-                        qualitySelect.style.display = "inline-block";
-                    }
-
-                    // Populate language options
-                    if (playlistDetails.mediaTypes.AUDIO.length > 0) {
-                        languageSelect.innerHTML = "";
-                        playlistDetails.mediaTypes.AUDIO.forEach((audioTrack, index) => {
-                            let option = document.createElement("option");
-                            option.value = index;
-                            option.textContent = audioTrack.NAME || audioTrack.LANGUAGE || `Track ${index + 1}`;
-                            languageSelect.appendChild(option);
-                        });
-                        languageSelect.style.display = "inline-block";
-                    }
-
-                    // Then load the HLS source
-                    hls.loadSource(rewriteURL(audioUrl || url)); 
-                    hls.attachMedia(video);
-
-                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
-                        video.play();
-                    });
-
-                    hls.on(Hls.Events.ERROR, function (event, data) {
-                        console.error("HLS.js Error:", data);
-                    });
+                this.quality.disabled = false;
+            }
+            
+            // Audio tracks
+            this.audio.innerHTML = '<option value="default">Default</option>';
+            if (data.audioTracks && data.audioTracks.length > 1) {
+                data.audioTracks.forEach((track, i) => {
+                    const opt = document.createElement('option');
+                    opt.value = i;
+                    opt.textContent = track.name || track.lang || `Audio ${i+1}`;
+                    this.audio.appendChild(opt);
                 });
-
-            } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-                video.src = rewriteURL(audioUrl || url);
-                video.addEventListener("loadedmetadata", function () {
-                    video.play();
-                });
+                this.audio.disabled = false;
             }
         }
-
-        function changeLanguage() {
-            var selectedIndex = parseInt(languageSelect.value);
-            if (!isNaN(selectedIndex) && currentPlaylistDetails) {
-                const selectedAudioTrack = currentPlaylistDetails.mediaTypes.AUDIO[selectedIndex];
-                
-                if (selectedAudioTrack && selectedAudioTrack.URI) {
-                    // Pause the video before switching
-                    video.pause();
-
-                    // Find the current video stream
-                    const currentQualityIndex = qualitySelect.value || 0;
-                    const currentStream = currentPlaylistDetails.streamInfo[currentQualityIndex];
-
-                    // Play the selected audio track with the current video stream
-                    playHLS(
-                        currentStream.URI, 
-                        selectedAudioTrack.URI
-                    );
-
-                    console.log("Switched to audio:", selectedAudioTrack.NAME || selectedAudioTrack.LANGUAGE);
-                }
-            }
-        }
-
-        function changeSubtitle() {
-            // TODO: Implement subtitle changing logic
-            var selectedIndex = parseInt(subtitleSelect.value);
-            if (!isNaN(selectedIndex)) {
-                console.log("Subtitle change not implemented");
+        
+        toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                this.container.requestFullscreen().catch(console.error);
             } else {
-                console.log("Subtitles disabled");
+                document.exitFullscreen();
             }
         }
-
-        function changeQuality() {
-            var selectedIndex = parseInt(qualitySelect.value);
-            if (!isNaN(selectedIndex) && currentPlaylistDetails) {
-                // Pause the video before switching
-                video.pause();
-
-                const selectedStream = currentPlaylistDetails.streamInfo[selectedIndex];
-                
-                // Find the current audio track
-                const currentLanguageIndex = languageSelect.value || 0;
-                const currentAudioTrack = currentPlaylistDetails.mediaTypes.AUDIO[currentLanguageIndex];
-
-                if (selectedStream && currentAudioTrack) {
-                    // Load the selected quality stream with current audio track
-                    playHLS(
-                        selectedStream.URI, 
-                        currentAudioTrack.URI
-                    );
-                    console.log("Switched to quality:", 
-                        selectedStream.RESOLUTION 
-                            ? `${selectedStream.RESOLUTION.width}x${selectedStream.RESOLUTION.height}` 
-                            : "Unknown"
-                    );
+        
+        showControls() {
+            clearTimeout(this.controlsTimeout);
+            this.container.querySelector('.controls').style.opacity = '1';
+            this.controlsTimeout = setTimeout(() => this.hideControls(), 3000);
+        }
+        
+        hideControls() {
+            if (!this.video.paused) {
+                this.container.querySelector('.controls').style.opacity = '0';
+            }
+        }
+        
+        showLoading() {
+            this.error.style.display = 'none';
+            this.loading.style.display = 'flex';
+        }
+        
+        hideLoading() {
+            this.loading.style.display = 'none';
+        }
+        
+        showError(message) {
+            this.hideLoading();
+            this.errorText.textContent = message;
+            this.error.style.display = 'flex';
+        }
+        
+        handleError(data) {
+            let message = 'Playback error';
+            if (data.fatal) {
+                switch(data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        message = 'Network error';
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        message = 'Media error';
+                        break;
                 }
             }
+            this.showError(message);
         }
+    }
 
-        // Load the master playlist
-        playHLS("https://netfree.cc/hls/81943001.m3u8?in=cc8798a772fb1940ff18caddd1001b05::2e8470b31e6ad01d2012d8bba27cceea::1742886767::su");
+    // Initialize player
+    document.addEventListener('DOMContentLoaded', () => {
+        const player = new HLSPlayer('player');
+        
+const urlParams = new URLSearchParams(window.location.search);
+const videoUrl = urlParams.get('url');
+
+if (videoUrl) {
+    player.load(videoUrl);
+} else {
+    player.showError('No video URL provided');
+}
+        
+        // Make available globally if needed
+        window.hlsPlayer = player;
+    });
     </script>
 </body>
 </html>
