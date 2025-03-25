@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HLS M3U8 Parser</title>
+    <script>
+        async function parseM3U8() {
+            const url = document.getElementById("m3u8Url").value;
+            if (!url) return alert("Enter an M3U8 URL");
+
+            document.getElementById("output").innerHTML = "Parsing...";
+            try {
+                const response = await fetch(`/parse?url=${encodeURIComponent(url)}`);
+                const data = await response.json();
+
+                let html = `<h3>Video Qualities</h3><ul>`;
+                data.videos.forEach(v => {
+                    html += `<li>${v.resolution} - <a href="${v.url}" target="_blank">Play</a></li>`;
+                });
+                html += `</ul>`;
+
+                html += `<h3>Audio Tracks</h3><ul>`;
+                data.audio.forEach(a => {
+                    html += `<li>${a.language} - <a href="${a.url}" target="_blank">Stream</a></li>`;
+                });
+                html += `</ul>`;
+
+                html += `<h3>Subtitles</h3><ul>`;
+                data.subtitles.forEach(s => {
+                    html += `<li>${s.language} - <a href="${s.url}" target="_blank">Download</a></li>`;
+                });
+                html += `</ul>`;
+
+                document.getElementById("output").innerHTML = html;
+            } catch (err) {
+                document.getElementById("output").innerHTML = "Error parsing M3U8";
+            }
+        }
+    </script>
+</head>
+<body>
+    <h1>HLS M3U8 Parser</h1>
+    <input type="text" id="m3u8Url" placeholder="Enter M3U8 Link" size="50">
+    <button onclick="parseM3U8()">Parse</button>
+    <div id="output"></div>
+</body>
+</html>
