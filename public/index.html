@@ -4,45 +4,51 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HLS M3U8 Parser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
         async function parseM3U8() {
             const url = document.getElementById("m3u8Url").value;
+            const referer = document.getElementById("referer").value;
+
             if (!url) return alert("Enter an M3U8 URL");
 
-            document.getElementById("output").innerHTML = "Parsing...";
+            document.getElementById("output").innerHTML = "<p class='text-gray-500'>Parsing...</p>";
             try {
-                const response = await fetch(`/parse?url=${encodeURIComponent(url)}`);
+                const response = await fetch(`/parse?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(referer)}`);
                 const data = await response.json();
 
-                let html = `<h3>Video Qualities</h3><ul>`;
+                let html = `<h3 class="text-xl font-bold mt-4">Video Qualities</h3><ul class="list-disc pl-5">`;
                 data.videos.forEach(v => {
-                    html += `<li>${v.resolution} - <a href="${v.url}" target="_blank">Play</a></li>`;
+                    html += `<li class="mt-1">${v.resolution} - <a class="text-blue-500 underline" href="${v.url}" target="_blank">Play</a></li>`;
                 });
                 html += `</ul>`;
 
-                html += `<h3>Audio Tracks</h3><ul>`;
+                html += `<h3 class="text-xl font-bold mt-4">Audio Tracks</h3><ul class="list-disc pl-5">`;
                 data.audio.forEach(a => {
-                    html += `<li>${a.language} - <a href="${a.url}" target="_blank">Stream</a></li>`;
+                    html += `<li class="mt-1">${a.language} - <a class="text-blue-500 underline" href="${a.url}" target="_blank">Stream</a></li>`;
                 });
                 html += `</ul>`;
 
-                html += `<h3>Subtitles</h3><ul>`;
+                html += `<h3 class="text-xl font-bold mt-4">Subtitles</h3><ul class="list-disc pl-5">`;
                 data.subtitles.forEach(s => {
-                    html += `<li>${s.language} - <a href="${s.url}" target="_blank">Download</a></li>`;
+                    html += `<li class="mt-1">${s.language} - <a class="text-blue-500 underline" href="${s.url}" target="_blank">Download</a></li>`;
                 });
                 html += `</ul>`;
 
                 document.getElementById("output").innerHTML = html;
             } catch (err) {
-                document.getElementById("output").innerHTML = "Error parsing M3U8";
+                document.getElementById("output").innerHTML = "<p class='text-red-500'>Error parsing M3U8</p>";
             }
         }
     </script>
 </head>
-<body>
-    <h1>HLS M3U8 Parser</h1>
-    <input type="text" id="m3u8Url" placeholder="Enter M3U8 Link" size="50">
-    <button onclick="parseM3U8()">Parse</button>
-    <div id="output"></div>
+<body class="bg-gray-100 text-gray-900 flex flex-col items-center p-6">
+    <h1 class="text-3xl font-bold mb-4">HLS M3U8 Parser</h1>
+    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg">
+        <input type="text" id="m3u8Url" class="w-full p-2 border rounded mb-2" placeholder="Enter M3U8 Link">
+        <input type="text" id="referer" class="w-full p-2 border rounded mb-2" placeholder="Enter Referer (optional)">
+        <button onclick="parseM3U8()" class="w-full bg-blue-500 text-white p-2 rounded">Parse</button>
+    </div>
+    <div id="output" class="mt-6 w-full max-w-lg bg-white p-6 rounded-lg shadow-lg"></div>
 </body>
 </html>
