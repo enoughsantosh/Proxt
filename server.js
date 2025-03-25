@@ -25,35 +25,9 @@ app.get("/parse", async (req, res) => {
         const parser = new m3u8Parser.Parser();
         parser.push(data);
         parser.end();
-        const playlist = parser.manifest;
+        const playlist = parser.manifest; // Full unfiltered response
 
-        const makeAbsolute = (link) => (link && !link.startsWith("http") ? new URL(link, m3u8Url).href : link);
-
-        // Extract Video Streams
-        const videos = playlist.playlists?.map((p) => ({
-            resolution: p.attributes.RESOLUTION
-                ? `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}`
-                : "Unknown",
-            url: makeAbsolute(p.uri),
-        })) || [];
-
-        // Extract Audio Tracks
-        const audioTracks = (playlist.media || []).filter((m) => m.type === "AUDIO");
-        const audio = audioTracks.map((a) => ({
-            language: a.language || "Unknown",
-            name: a.name || "Audio Track",
-            url: makeAbsolute(a.uri),
-        }));
-
-        // Extract Subtitles
-        const subtitleTracks = (playlist.media || []).filter((m) => m.type === "SUBTITLES");
-        const subtitles = subtitleTracks.map((s) => ({
-            language: s.language || "Unknown",
-            name: s.name || "Subtitle",
-            url: makeAbsolute(s.uri),
-        }));
-
-        res.json({ videos, audio, subtitles });
+        res.json({ originalResponse: playlist });
     } catch (error) {
         res.status(500).json({ error: "Error parsing M3U8", details: error.message });
     }
