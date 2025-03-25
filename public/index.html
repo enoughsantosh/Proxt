@@ -17,27 +17,76 @@
                 const response = await fetch(`/parse?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(referer)}`);
                 const data = await response.json();
 
-                let html = `<h3 class="text-xl font-bold mt-4">Video Qualities</h3><ul class="list-disc pl-5">`;
-                data.videos.forEach(v => {
-                    html += `<li class="mt-1">${v.resolution} - <a class="text-blue-500 underline" href="${v.url}" target="_blank">Play</a></li>`;
-                });
-                html += `</ul>`;
+                if (data.error) {
+                    document.getElementById("output").innerHTML = `<p class="text-red-500">Error: ${data.error}</p>`;
+                    return;
+                }
 
-                html += `<h3 class="text-xl font-bold mt-4">Audio Tracks</h3><ul class="list-disc pl-5">`;
-                data.audio.forEach(a => {
-                    html += `<li class="mt-1">${a.language} - <a class="text-blue-500 underline" href="${a.url}" target="_blank">Stream</a></li>`;
-                });
-                html += `</ul>`;
+                const playlist = data.originalResponse;
 
-                html += `<h3 class="text-xl font-bold mt-4">Subtitles</h3><ul class="list-disc pl-5">`;
-                data.subtitles.forEach(s => {
-                    html += `<li class="mt-1">${s.language} - <a class="text-blue-500 underline" href="${s.url}" target="_blank">Download</a></li>`;
-                });
-                html += `</ul>`;
+                let html = `<h3 class="text-xl font-bold mt-4">Parsed M3U8 Data</h3>`;
+
+                // Display Playlists (Video Streams)
+                if (playlist.playlists) {
+                    html += `<h4 class="text-lg font-semibold mt-3">Video Streams</h4><ul class="list-disc pl-5">`;
+                    playlist.playlists.forEach((p, index) => {
+                        html += `<li class="mt-1">
+                            <strong>Stream ${index + 1}:</strong> 
+                            Resolution: ${p.attributes?.RESOLUTION ? `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}` : "Unknown"},
+                            Codecs: ${p.attributes?.CODECS || "N/A"},
+                            <a class="text-blue-500 underline" href="${p.uri}" target="_blank">Play</a>
+                        </li>`;
+                    });
+                    html += `</ul>`;
+                }
+
+                // Display Audio Tracks
+                if (playlist.media) {
+                    const audioTracks = playlist.media.filter(m => m.type === "AUDIO");
+                    if (audioTracks.length > 0) {
+                        html += `<h4 class="text-lg font-semibold mt-3">Audio Tracks</h4><ul class="list-disc pl-5">`;
+                        audioTracks.forEach(a => {
+                            html += `<li class="mt-1">
+                                Language: ${a.language || "Unknown"}, Name: ${a.name || "N/A"},
+                                <a class="text-blue-500 underline" href="${a.uri}" target="_blank">Stream</a>
+                            </li>`;
+                        });
+                        html += `</ul>`;
+                    }
+                }
+
+                // Display Subtitle Tracks
+                const subtitleTracks = playlist.media?.filter(m => m.type === "SUBTITLES") || [];
+                if (subtitleTracks.length > 0) {
+                    html += `<h4 class="text-lg font-semibold mt-3">Subtitles</h4><ul class="list-disc pl-5">`;
+                    subtitleTracks.forEach(s => {
+                        html += `<li class="mt-1">
+                            Language: ${s.language || "Unknown"}, Name: ${s.name || "N/A"},
+                            <a class="text-blue-500 underline" href="${s.uri}" target="_blank">Download</a>
+                        </li>`;
+                    });
+                    html += `</ul>`;
+                }
+
+                // Display Segments
+                if (playlist.segments) {
+                    html += `<h4 class="text-lg font-semibold mt-3">Segments</h4><ul class="list-disc pl-5 overflow-y-auto max-h-64">`;
+                    playlist.segments.forEach((seg, index) => {
+                        html += `<li class="mt-1">
+                            Segment ${index + 1}: Duration: ${seg.duration || "Unknown"} sec,
+                            <a class="text-blue-500 underline" href="${seg.uri}" target="_blank">Download</a>
+                        </li>`;
+                    });
+                    html += `</ul>`;
+                }
+
+                // Display Raw JSON Response
+                html += `<h4 class="text-lg font-semibold mt-3">Raw JSON Output</h4>`;
+                html += `<pre class="bg-gray-200 p-4 rounded text-sm overflow-x-auto">${JSON.stringify(playlist, null, 2)}</pre>`;
 
                 document.getElementById("output").innerHTML = html;
             } catch (err) {
-                document.getElementById("output").innerHTML = "<p class='text-red-500'>Error parsing M3U8</p>";
+                document.getElementById("output").innerHTML = `<p class='text-red-500'>Error parsing M3U8</p>`;
             }
         }
     </script>
