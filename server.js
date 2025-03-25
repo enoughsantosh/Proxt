@@ -4,6 +4,7 @@ const cors = require("cors");
 const url = require("url");
 
 const app = express();
+app.use(express.static(__dirname));
 app.use(cors());
 
 // Proxy for M3U8 & TS files
