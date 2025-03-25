@@ -23,71 +23,73 @@
                 }
 
                 const playlist = data.originalResponse;
-
                 let html = `<h3 class="text-xl font-bold mt-4">Parsed M3U8 Data</h3>`;
 
-                // Display Playlists (Video Streams)
+                // Video Player
+                if (playlist.playlists && playlist.playlists.length > 0) {
+                    html += `<h4 class="text-lg font-semibold mt-3">Video Preview</h4>
+                        <video id="videoPlayer" controls class="w-full rounded-lg">
+                            <source src="${playlist.playlists[0].uri}" type="application/x-mpegURL">
+                            Your browser does not support the video tag.
+                        </video>`;
+
+                    // Video Quality Selector
+                    html += `<h4 class="text-lg font-semibold mt-3">Select Quality</h4>
+                        <select id="qualitySelect" class="w-full p-2 border rounded" onchange="changeQuality(this)">`;
+                    playlist.playlists.forEach((p, index) => {
+                        html += `<option value="${p.uri}">${p.attributes?.RESOLUTION?.width}x${p.attributes?.RESOLUTION?.height} (${p.attributes?.BANDWIDTH} bps)</option>`;
+                    });
+                    html += `</select>`;
+                }
+
+                // Video Streams List
                 if (playlist.playlists) {
                     html += `<h4 class="text-lg font-semibold mt-3">Video Streams</h4><ul class="list-disc pl-5">`;
-                    playlist.playlists.forEach((p, index) => {
+                    playlist.playlists.forEach((p) => {
                         html += `<li class="mt-1">
-                            <strong>Stream ${index + 1}:</strong> 
-                            Resolution: ${p.attributes?.RESOLUTION ? `${p.attributes.RESOLUTION.width}x${p.attributes.RESOLUTION.height}` : "Unknown"},
-                            Codecs: ${p.attributes?.CODECS || "N/A"},
+                            Resolution: ${p.attributes?.RESOLUTION?.width || "Unknown"}x${p.attributes?.RESOLUTION?.height || "Unknown"},
+                            Bandwidth: ${p.attributes?.BANDWIDTH || "N/A"},
                             <a class="text-blue-500 underline" href="${p.uri}" target="_blank">Play</a>
                         </li>`;
                     });
                     html += `</ul>`;
                 }
 
-                // Display Audio Tracks
-                if (playlist.media) {
-                    const audioTracks = playlist.media.filter(m => m.type === "AUDIO");
-                    if (audioTracks.length > 0) {
-                        html += `<h4 class="text-lg font-semibold mt-3">Audio Tracks</h4><ul class="list-disc pl-5">`;
-                        audioTracks.forEach(a => {
-                            html += `<li class="mt-1">
-                                Language: ${a.language || "Unknown"}, Name: ${a.name || "N/A"},
-                                <a class="text-blue-500 underline" href="${a.uri}" target="_blank">Stream</a>
-                            </li>`;
-                        });
-                        html += `</ul>`;
-                    }
+                // Thumbnails (if available or generating from URL)
+                html += `<h4 class="text-lg font-semibold mt-3">Thumbnail</h4>`;
+                if (playlist.playlists && playlist.playlists[0]?.uri) {
+                    const baseURL = new URL(playlist.playlists[0].uri).origin;
+                    html += `<img src="${baseURL}/thumbnail.jpg" alt="Thumbnail" class="w-64 rounded-lg shadow-lg">`;
+                } else {
+                    html += `<p class="text-gray-500">No thumbnail available</p>`;
                 }
 
-                // Display Subtitle Tracks
-                const subtitleTracks = playlist.media?.filter(m => m.type === "SUBTITLES") || [];
-                if (subtitleTracks.length > 0) {
-                    html += `<h4 class="text-lg font-semibold mt-3">Subtitles</h4><ul class="list-disc pl-5">`;
-                    subtitleTracks.forEach(s => {
+                // Audio Tracks
+                if (playlist.mediaGroups?.AUDIO?.aac) {
+                    html += `<h4 class="text-lg font-semibold mt-3">Audio Tracks</h4><ul class="list-disc pl-5">`;
+                    Object.entries(playlist.mediaGroups.AUDIO.aac).forEach(([name, track]) => {
                         html += `<li class="mt-1">
-                            Language: ${s.language || "Unknown"}, Name: ${s.name || "N/A"},
-                            <a class="text-blue-500 underline" href="${s.uri}" target="_blank">Download</a>
+                            Language: ${track.language || "Unknown"} (${name}),
+                            <a class="text-blue-500 underline" href="${track.uri}" target="_blank">Stream</a>
                         </li>`;
                     });
                     html += `</ul>`;
                 }
 
-                // Display Segments
-                if (playlist.segments) {
-                    html += `<h4 class="text-lg font-semibold mt-3">Segments</h4><ul class="list-disc pl-5 overflow-y-auto max-h-64">`;
-                    playlist.segments.forEach((seg, index) => {
-                        html += `<li class="mt-1">
-                            Segment ${index + 1}: Duration: ${seg.duration || "Unknown"} sec,
-                            <a class="text-blue-500 underline" href="${seg.uri}" target="_blank">Download</a>
-                        </li>`;
-                    });
-                    html += `</ul>`;
-                }
-
-                // Display Raw JSON Response
-                html += `<h4 class="text-lg font-semibold mt-3">Raw JSON Output</h4>`;
-                html += `<pre class="bg-gray-200 p-4 rounded text-sm overflow-x-auto">${JSON.stringify(playlist, null, 2)}</pre>`;
+                // Raw JSON Data
+                html += `<h4 class="text-lg font-semibold mt-3">Raw JSON Output</h4>
+                        <pre class="bg-gray-200 p-4 rounded text-sm overflow-x-auto">${JSON.stringify(playlist, null, 2)}</pre>`;
 
                 document.getElementById("output").innerHTML = html;
             } catch (err) {
                 document.getElementById("output").innerHTML = `<p class='text-red-500'>Error parsing M3U8</p>`;
             }
+        }
+
+        function changeQuality(select) {
+            const video = document.getElementById("videoPlayer");
+            video.src = select.value;
+            video.play();
         }
     </script>
 </head>
