@@ -3,94 +3,347 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Embedded HLS Player</title>
+    <title>Advanced HLS Player with Detailed Playlist Parsing</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body {
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: black;
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #playlistInfo {
+            background-color: #f4f4f4;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        select {
+            margin: 10px 0;
+            padding: 5px;
         }
         video {
-            width: 80%;
+            width: 100%;
             max-width: 800px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
         }
     </style>
 </head>
 <body>
+    <div id="playlistInfo"></div>
+
+    <div class="controls">
+        <div>
+            <label for="languageSelect">Audio Language:</label>
+            <select id="languageSelect" style="display: none;" onchange="changeLanguage()">
+                <option value="">Select Language</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="subtitleSelect">Subtitles:</label>
+            <select id="subtitleSelect" style="display: none;" onchange="changeSubtitle()">
+                <option value="">None</option>
+            </select>
+        </div>
+
+        <div>
+            <label for="qualitySelect">Video Quality:</label>
+            <select id="qualitySelect" style="display: none;" onchange="changeQuality()">
+                <option value="">Select Quality</option>
+            </select>
+        </div>
+    </div>
+
     <video id="video" controls autoplay></video>
 
     <script>
-        const urlParams = new URLSearchParams(window.location.search);
-        const m3u8Url = urlParams.get("url");
-
-        if (!m3u8Url) {
-            alert("Error: No video URL provided.");
-            throw new Error("No video URL provided.");
-        }
-
-        const video = document.getElementById("video");
+        var video = document.getElementById("video");
+        var languageSelect = document.getElementById("languageSelect");
+        var subtitleSelect = document.getElementById("subtitleSelect");
+        var qualitySelect = document.getElementById("qualitySelect");
+        var playlistInfo = document.getElementById("playlistInfo");
+        var hls;
+        var audioTracks = [];
+        var subtitleTracks = [];
+        var videoTracks = [];
+        var currentPlaylistUrl = null;
+        var currentPlaylistDetails = null;
 
         function rewriteURL(url) {
-            return "/proxy?url=" + encodeURIComponent(url);
+            return "https://proxt-fnny.onrender.com/proxy?url=" + encodeURIComponent(url);
         }
 
-        if (Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(rewriteURL(m3u8Url));
-            hls.attachMedia(video);
-
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play();
-                setupQualitySelection(hls);
-                setupAudioTrackSelection(hls);
-                setupSubtitleTrackSelection(hls);
-            });
-        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-            video.src = rewriteURL(m3u8Url);
-            video.addEventListener("loadedmetadata", function() {
-                video.play();
-            });
-        }
-
-        function setupQualitySelection(hls) {
-            const levels = hls.levels.map((level, index) => ({ label: `${level.height}p`, index }));
-            addControl("Quality", levels, (index) => hls.currentLevel = index);
-        }
-
-        function setupAudioTrackSelection(hls) {
-            const tracks = hls.audioTracks.map((track, index) => ({ label: track.name, index }));
-            if (tracks.length > 1) {
-                addControl("Audio", tracks, (index) => hls.audioTrack = index);
+        async function parseM3U8(url) {
+            try {
+                const response = await fetch(rewriteURL(url));
+                const text = await response.text();
+                return parsePlaylist(text, url);
+            } catch (error) {
+                console.error("Error parsing M3U8:", error);
+                return null;
             }
         }
 
-        function setupSubtitleTrackSelection(hls) {
-            const subtitles = hls.subtitleTracks.map((track, index) => ({ label: track.name || `Subtitle ${index+1}`, index }));
-            if (subtitles.length > 0) {
-                addControl("Subtitles", subtitles, (index) => hls.subtitleTrack = index);
+        function parsePlaylist(playlistContent, baseUrl) {
+            const lines = playlistContent.split('\n');
+            const playlistInfo = {
+                mediaTypes: {
+                    VIDEO: [],
+                    AUDIO: [],
+                    SUBTITLES: [],
+                    CLOSED_CAPTIONS: []
+                },
+                streamInfo: []
+            };
+
+            lines.forEach(line => {
+                line = line.trim();
+                
+                // Media tag parsing
+                if (line.startsWith('#EXT-X-MEDIA:')) {
+                    const mediaInfo = parseMediaTag(line);
+                    switch(mediaInfo.TYPE) {
+                        case 'VIDEO':
+                            playlistInfo.mediaTypes.VIDEO.push(mediaInfo);
+                            break;
+                        case 'AUDIO':
+                            playlistInfo.mediaTypes.AUDIO.push(mediaInfo);
+                            break;
+                        case 'SUBTITLES':
+                            playlistInfo.mediaTypes.SUBTITLES.push(mediaInfo);
+                            break;
+                        case 'CLOSED-CAPTIONS':
+                            playlistInfo.mediaTypes.CLOSED_CAPTIONS.push(mediaInfo);
+                            break;
+                    }
+                }
+
+                // Stream info parsing
+                if (line.startsWith('#EXT-X-STREAM-INF:')) {
+                    const streamInfo = parseStreamInfoTag(line);
+                    // Resolve relative URLs
+                    if (streamInfo.URI && !streamInfo.URI.startsWith('http')) {
+                        const urlParts = baseUrl.split('/');
+                        urlParts.pop();
+                        streamInfo.URI = urlParts.join('/') + '/' + streamInfo.URI;
+                    }
+                    playlistInfo.streamInfo.push(streamInfo);
+                }
+            });
+
+            return playlistInfo;
+        }
+
+        function parseMediaTag(line) {
+            const mediaInfo = {};
+            const attributes = line.replace('#EXT-X-MEDIA:', '').split(',');
+            
+            attributes.forEach(attr => {
+                const [key, value] = attr.split('=');
+                const cleanValue = value ? value.replace(/^"|"$/g, '') : '';
+                
+                switch(key.trim()) {
+                    case 'TYPE':
+                        mediaInfo.TYPE = cleanValue;
+                        break;
+                    case 'URI':
+                        mediaInfo.URI = cleanValue;
+                        break;
+                    case 'GROUP-ID':
+                        mediaInfo.GROUP_ID = cleanValue;
+                        break;
+                    case 'LANGUAGE':
+                        mediaInfo.LANGUAGE = cleanValue;
+                        break;
+                    case 'NAME':
+                        mediaInfo.NAME = cleanValue;
+                        break;
+                    case 'DEFAULT':
+                        mediaInfo.DEFAULT = cleanValue === 'YES';
+                        break;
+                    case 'AUTOSELECT':
+                        mediaInfo.AUTOSELECT = cleanValue === 'YES';
+                        break;
+                }
+            });
+
+            return mediaInfo;
+        }
+
+        function parseStreamInfoTag(line) {
+            const streamInfo = {};
+            const attributes = line.replace('#EXT-X-STREAM-INF:', '').split(',');
+            
+            attributes.forEach(attr => {
+                const [key, value] = attr.split('=');
+                const cleanValue = value ? value.replace(/^"|"$/g, '') : '';
+                
+                switch(key.trim()) {
+                    case 'BANDWIDTH':
+                        streamInfo.BANDWIDTH = parseInt(cleanValue);
+                        break;
+                    case 'RESOLUTION':
+                        const [width, height] = cleanValue.split('x');
+                        streamInfo.RESOLUTION = { width: parseInt(width), height: parseInt(height) };
+                        break;
+                    case 'CODECS':
+                        streamInfo.CODECS = cleanValue;
+                        break;
+                    case 'AUDIO':
+                        streamInfo.AUDIO_GROUP = cleanValue;
+                        break;
+                    case 'SUBTITLES':
+                        streamInfo.SUBTITLES_GROUP = cleanValue;
+                        break;
+                    case 'URI':
+                        streamInfo.URI = cleanValue;
+                        break;
+                }
+            });
+
+            return streamInfo;
+        }
+
+        function playHLS(url, audioUrl = null) {
+            currentPlaylistUrl = url;
+            if (Hls.isSupported()) {
+                // Destroy previous HLS instance if exists
+                if (hls) {
+                    hls.destroy();
+                }
+
+                hls = new Hls({
+                    xhrSetup: function (xhr, url) {
+                        xhr.open("GET", rewriteURL(url), true);
+                    }
+                });
+
+                // First, parse the playlist
+                parseM3U8(url).then(playlistDetails => {
+                    currentPlaylistDetails = playlistDetails;
+                    // Display playlist details
+                    playlistInfo.textContent = JSON.stringify(playlistDetails, null, 2);
+
+                    // Populate quality options
+                    if (playlistDetails.streamInfo.length > 0) {
+                        qualitySelect.innerHTML = "";
+                        playlistDetails.streamInfo.forEach((stream, index) => {
+                            let option = document.createElement("option");
+                            option.value = index;
+                            option.textContent = stream.RESOLUTION 
+                                ? `${stream.RESOLUTION.width}x${stream.RESOLUTION.height} (${Math.round(stream.BANDWIDTH/1000)} kbps)` 
+                                : `Stream ${index + 1}`;
+                            qualitySelect.appendChild(option);
+                        });
+                        qualitySelect.style.display = "inline-block";
+                    }
+
+                    // Populate language options
+                    if (playlistDetails.mediaTypes.AUDIO.length > 0) {
+                        languageSelect.innerHTML = "";
+                        playlistDetails.mediaTypes.AUDIO.forEach((audioTrack, index) => {
+                            let option = document.createElement("option");
+                            option.value = index;
+                            option.textContent = audioTrack.NAME || audioTrack.LANGUAGE || `Track ${index + 1}`;
+                            languageSelect.appendChild(option);
+                        });
+                        languageSelect.style.display = "inline-block";
+                    }
+
+                    // Then load the HLS source
+                    hls.loadSource(rewriteURL(audioUrl || url)); 
+                    hls.attachMedia(video);
+
+                    hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                        video.play();
+                    });
+
+                    hls.on(Hls.Events.ERROR, function (event, data) {
+                        console.error("HLS.js Error:", data);
+                    });
+                });
+
+            } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+                video.src = rewriteURL(audioUrl || url);
+                video.addEventListener("loadedmetadata", function () {
+                    video.play();
+                });
             }
         }
 
-        function addControl(label, options, onChange) {
-            const select = document.createElement("select");
-            select.style.position = "absolute";
-            select.style.bottom = "10px";
-            select.style.right = "10px";
+        function changeLanguage() {
+            var selectedIndex = parseInt(languageSelect.value);
+            if (!isNaN(selectedIndex) && currentPlaylistDetails) {
+                const selectedAudioTrack = currentPlaylistDetails.mediaTypes.AUDIO[selectedIndex];
+                
+                if (selectedAudioTrack && selectedAudioTrack.URI) {
+                    // Pause the video before switching
+                    video.pause();
 
-            options.forEach(opt => {
-                const option = document.createElement("option");
-                option.value = opt.index;
-                option.textContent = opt.label;
-                select.appendChild(option);
-            });
+                    // Find the current video stream
+                    const currentQualityIndex = qualitySelect.value || 0;
+                    const currentStream = currentPlaylistDetails.streamInfo[currentQualityIndex];
 
-            select.addEventListener("change", () => onChange(parseInt(select.value)));
-            document.body.appendChild(select);
+                    // Play the selected audio track with the current video stream
+                    playHLS(
+                        currentStream.URI, 
+                        selectedAudioTrack.URI
+                    );
+
+                    console.log("Switched to audio:", selectedAudioTrack.NAME || selectedAudioTrack.LANGUAGE);
+                }
+            }
         }
+
+        function changeSubtitle() {
+            // TODO: Implement subtitle changing logic
+            var selectedIndex = parseInt(subtitleSelect.value);
+            if (!isNaN(selectedIndex)) {
+                console.log("Subtitle change not implemented");
+            } else {
+                console.log("Subtitles disabled");
+            }
+        }
+
+        function changeQuality() {
+            var selectedIndex = parseInt(qualitySelect.value);
+            if (!isNaN(selectedIndex) && currentPlaylistDetails) {
+                // Pause the video before switching
+                video.pause();
+
+                const selectedStream = currentPlaylistDetails.streamInfo[selectedIndex];
+                
+                // Find the current audio track
+                const currentLanguageIndex = languageSelect.value || 0;
+                const currentAudioTrack = currentPlaylistDetails.mediaTypes.AUDIO[currentLanguageIndex];
+
+                if (selectedStream && currentAudioTrack) {
+                    // Load the selected quality stream with current audio track
+                    playHLS(
+                        selectedStream.URI, 
+                        currentAudioTrack.URI
+                    );
+                    console.log("Switched to quality:", 
+                        selectedStream.RESOLUTION 
+                            ? `${selectedStream.RESOLUTION.width}x${selectedStream.RESOLUTION.height}` 
+                            : "Unknown"
+                    );
+                }
+            }
+        }
+
+        // Load the master playlist
+        playHLS("https://netfree.cc/hls/81943001.m3u8?in=cc8798a772fb1940ff18caddd1001b05::2e8470b31e6ad01d2012d8bba27cceea::1742886767::su");
     </script>
 </body>
 </html>
