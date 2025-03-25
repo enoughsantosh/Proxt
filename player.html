@@ -293,9 +293,10 @@
         
 const urlParams = new URLSearchParams(window.location.search);
 const videoUrl = urlParams.get('url');
+const vudeosUrl = proxyUrl(vudeoUrl);
 
 if (videoUrl) {
-    player.load(videoUrl);
+    player.load(videosUrl);
 } else {
     player.showError('No video URL provided');
 }
