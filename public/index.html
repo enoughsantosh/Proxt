@@ -3,12 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HLS M3U8 Parser</title>
+    <title>Enhanced HLS Player</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 flex flex-col items-center p-6">
+    <h1 class="text-3xl font-bold mb-4">Enhanced HLS M3U8 Player</h1>
+    
+    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg">
+        <input type="text" id="m3u8Url" class="w-full p-2 border rounded mb-2" placeholder="Enter M3U8 Link">
+        <input type="text" id="referer" class="w-full p-2 border rounded mb-2" placeholder="Enter Referer (optional)">
+        <button onclick="parseM3U8()" class="w-full bg-blue-500 text-white p-2 rounded">Parse</button>
+    </div>
+
+    <div id="output" class="mt-6 w-full max-w-lg bg-white p-6 rounded-lg shadow-lg"></div>
+
     <script>
+        let videoTracks = [];
+        let audioTracks = [];
+        let currentVideo = "";
+        let currentAudio = "";
+
         async function parseM3U8() {
             const url = document.getElementById("m3u8Url").value;
-            const referer = document.getElementById("referer").value;
+            const referer = document.getElementById("referer").value || "https://netfree.cc";
 
             if (!url) return alert("Enter an M3U8 URL");
 
@@ -22,84 +40,58 @@
                     return;
                 }
 
-                const playlist = data.originalResponse;
-                let html = `<h3 class="text-xl font-bold mt-4">Parsed M3U8 Data</h3>`;
+                videoTracks = data.videoStreams;
+                audioTracks = data.audioStreams;
+                currentVideo = videoTracks.length > 0 ? videoTracks[0] : "";
+                currentAudio = audioTracks.length > 0 ? audioTracks[0] : "";
 
-                // Video Player
-                if (playlist.playlists && playlist.playlists.length > 0) {
-                    html += `<h4 class="text-lg font-semibold mt-3">Video Preview</h4>
-                        <video id="videoPlayer" controls class="w-full rounded-lg">
-                            <source src="${playlist.playlists[0].uri}" type="application/x-mpegURL">
-                            Your browser does not support the video tag.
-                        </video>`;
-
-                    // Video Quality Selector
-                    html += `<h4 class="text-lg font-semibold mt-3">Select Quality</h4>
-                        <select id="qualitySelect" class="w-full p-2 border rounded" onchange="changeQuality(this)">`;
-                    playlist.playlists.forEach((p, index) => {
-                        html += `<option value="${p.uri}">${p.attributes?.RESOLUTION?.width}x${p.attributes?.RESOLUTION?.height} (${p.attributes?.BANDWIDTH} bps)</option>`;
-                    });
-                    html += `</select>`;
-                }
-
-                // Video Streams List
-                if (playlist.playlists) {
-                    html += `<h4 class="text-lg font-semibold mt-3">Video Streams</h4><ul class="list-disc pl-5">`;
-                    playlist.playlists.forEach((p) => {
-                        html += `<li class="mt-1">
-                            Resolution: ${p.attributes?.RESOLUTION?.width || "Unknown"}x${p.attributes?.RESOLUTION?.height || "Unknown"},
-                            Bandwidth: ${p.attributes?.BANDWIDTH || "N/A"},
-                            <a class="text-blue-500 underline" href="${p.uri}" target="_blank">Play</a>
-                        </li>`;
-                    });
-                    html += `</ul>`;
-                }
-
-                // Thumbnails (if available or generating from URL)
-                html += `<h4 class="text-lg font-semibold mt-3">Thumbnail</h4>`;
-                if (playlist.playlists && playlist.playlists[0]?.uri) {
-                    const baseURL = new URL(playlist.playlists[0].uri).origin;
-                    html += `<img src="${baseURL}/thumbnail.jpg" alt="Thumbnail" class="w-64 rounded-lg shadow-lg">`;
-                } else {
-                    html += `<p class="text-gray-500">No thumbnail available</p>`;
-                }
-
-                // Audio Tracks
-                if (playlist.mediaGroups?.AUDIO?.aac) {
-                    html += `<h4 class="text-lg font-semibold mt-3">Audio Tracks</h4><ul class="list-disc pl-5">`;
-                    Object.entries(playlist.mediaGroups.AUDIO.aac).forEach(([name, track]) => {
-                        html += `<li class="mt-1">
-                            Language: ${track.language || "Unknown"} (${name}),
-                            <a class="text-blue-500 underline" href="${track.uri}" target="_blank">Stream</a>
-                        </li>`;
-                    });
-                    html += `</ul>`;
-                }
-
-                // Raw JSON Data
-                html += `<h4 class="text-lg font-semibold mt-3">Raw JSON Output</h4>
-                        <pre class="bg-gray-200 p-4 rounded text-sm overflow-x-auto">${JSON.stringify(playlist, null, 2)}</pre>`;
-
-                document.getElementById("output").innerHTML = html;
+                renderPlayer();
             } catch (err) {
                 document.getElementById("output").innerHTML = `<p class='text-red-500'>Error parsing M3U8</p>`;
             }
         }
 
-        function changeQuality(select) {
+        function renderPlayer() {
+            let html = `<h3 class="text-xl font-bold mt-4">Playback</h3>
+                        <video id="videoPlayer" controls class="w-full rounded-lg"></video>`;
+
+            if (videoTracks.length > 0) {
+                html += `<h4 class="text-lg font-semibold mt-3">Select Video Quality</h4>
+                        <select id="videoSelect" class="w-full p-2 border rounded" onchange="changeTrack('video')">
+                        ${videoTracks.map(v => `<option value="${v}">${v}</option>`).join("")}
+                        </select>`;
+            }
+
+            if (audioTracks.length > 0) {
+                html += `<h4 class="text-lg font-semibold mt-3">Select Audio Track</h4>
+                        <select id="audioSelect" class="w-full p-2 border rounded" onchange="changeTrack('audio')">
+                        ${audioTracks.map(a => `<option value="${a}">${a}</option>`).join("")}
+                        </select>`;
+            }
+
+            document.getElementById("output").innerHTML = html;
+            setupHLS();
+        }
+
+        function setupHLS() {
             const video = document.getElementById("videoPlayer");
-            video.src = select.value;
-            video.play();
+            if (Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(currentVideo);
+                hls.attachMedia(video);
+            } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+                video.src = currentVideo;
+            }
+        }
+
+        function changeTrack(type) {
+            if (type === "video") {
+                currentVideo = document.getElementById("videoSelect").value;
+            } else {
+                currentAudio = document.getElementById("audioSelect").value;
+            }
+            setupHLS();
         }
     </script>
-</head>
-<body class="bg-gray-100 text-gray-900 flex flex-col items-center p-6">
-    <h1 class="text-3xl font-bold mb-4">HLS M3U8 Parser</h1>
-    <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg">
-        <input type="text" id="m3u8Url" class="w-full p-2 border rounded mb-2" placeholder="Enter M3U8 Link">
-        <input type="text" id="referer" class="w-full p-2 border rounded mb-2" placeholder="Enter Referer (optional)">
-        <button onclick="parseM3U8()" class="w-full bg-blue-500 text-white p-2 rounded">Parse</button>
-    </div>
-    <div id="output" class="mt-6 w-full max-w-lg bg-white p-6 rounded-lg shadow-lg"></div>
 </body>
 </html>
