@@ -1,54 +1,59 @@
 const express = require("express");
-const axios = require("axios");
-const m3u8Parser = require("m3u8-parser");
+const request = require("request");
 const cors = require("cors");
-const { URL } = require("url");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(cors());
-app.use(express.json());
 
-app.get("/parse", async (req, res) => {
-    const m3u8Url = req.query.url;
-    const referer = req.query.referer || "https://netfree.cc";
+// Proxy for M3U8, TS, and Audio files
+app.get("/proxy", (req, res) => {
+    let targetUrl = req.query.url;
 
-    if (!m3u8Url) return res.status(400).json({ error: "M3U8 URL is required" });
-
-    try {
-        const headers = { headers: { Referer: referer } };
-        const { data } = await axios.get(m3u8Url, headers);
-
-        const parser = new m3u8Parser.Parser();
-        parser.push(data);
-        parser.end();
-        const playlist = parser.manifest;
-
-        const baseUrl = new URL(m3u8Url).origin;
-        const videoStreams = playlist.playlists ? playlist.playlists.map(p => new URL(p.uri, baseUrl).href) : [];
-        const audioStreams = playlist.mediaGroups?.AUDIO?.aac ? Object.values(playlist.mediaGroups.AUDIO.aac).map(a => new URL(a.uri, baseUrl).href) : [];
-
-        res.json({ videoStreams, audioStreams });
-    } catch (error) {
-        res.status(500).json({ error: "Error parsing M3U8", details: error.message });
+    if (!targetUrl) {
+        return res.status(400).send("Missing URL");
     }
+
+    const options = {
+        url: targetUrl,
+        headers: {
+            "Referer": "https://netfree.cc", // Required referer
+            "User-Agent": "Mozilla/5.0"
+        }
+    };
+
+    request(options, (error, response, body) => {
+        if (error) {
+            return res.status(500).send("Proxy error: " + error.message);
+        }
+
+        // If it's an M3U8 file (Master or Media)
+        if (targetUrl.includes(".m3u8")) {
+            let baseUrl = targetUrl.substring(0, targetUrl.lastIndexOf("/") + 1);
+
+            let modifiedBody = body.replace(/(\r\n|\n)/g, "\n") // Normalize newlines
+                .replace(/^(?!#)([^\n\r]+)/gm, (match) => {
+                    if (match.startsWith("http") || match.startsWith("/")) {
+                        return `/proxy?url=${encodeURIComponent(match)}`; // Proxy absolute URLs
+                    } else {
+                        return `/proxy?url=${encodeURIComponent(baseUrl + match)}`; // Proxy relative URLs
+                    }
+                })
+                // Ensure AUDIO links in #EXT-X-MEDIA are also proxied
+                .replace(/URI="([^"]+)"/g, (match, p1) => {
+                    return `URI="/proxy?url=${encodeURIComponent(p1)}"`;
+                });
+
+            res.set("Content-Type", "application/vnd.apple.mpegurl");
+            return res.send(modifiedBody);
+        }
+
+        // Proxy TS, AAC, MP3, or other media files
+        request(options).pipe(res);
+    });
 });
 
-// Proxy for serving segments with the correct referer
-app.get("/segment", async (req, res) => {
-    const segmentUrl = req.query.url;
-    if (!segmentUrl) return res.status(400).json({ error: "Segment URL is required" });
-
-    try {
-        const headers = { headers: { Referer: "https://netfree.cc" } };
-        const response = await axios.get(segmentUrl, { headers, responseType: "arraybuffer" });
-
-        res.set("Content-Type", "video/MP2T");
-        res.send(response.data);
-    } catch (error) {
-        res.status(500).json({ error: "Error fetching segment", details: error.message });
-    }
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Proxy server running at http://localhost:${PORT}`);
 });
-
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
